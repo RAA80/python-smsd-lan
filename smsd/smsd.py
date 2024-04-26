@@ -12,7 +12,7 @@ from .protocol import (CMD_TYPE, COMMAND, COMMANDS_RETURN_DATA_TYPE,
                        SMSD_CMD_TYPE, SMSD_LAN_CONFIG_TYPE)
 
 
-class SMSDError(Exception):
+class SmsdError(Exception):
     pass
 
 
@@ -70,7 +70,7 @@ class Smsd:
                              *lan_command_type.DATA[:lan_command_type.LENGTH]])
         if xor != lan_command_type.XOR:
             msg = "Invalid message checksum"
-            raise SMSDError(msg)
+            raise SmsdError(msg)
 
         return bytes(lan_command_type.DATA[:lan_command_type.LENGTH])
 
@@ -89,7 +89,7 @@ class Smsd:
                 return write or structure.RETURN_DATA
 
             msg = f"{ERROR_OR_COMMAND(structure.ERROR_OR_COMMAND).name}"
-            raise SMSDError(msg)
+            raise SmsdError(msg)
 
     def _password(self, command, err_or_cmd, password):
         """Посылка команды авторизации в устройство."""
@@ -140,7 +140,7 @@ class Smsd:
             return True
 
         msg = "Get protocol version error"
-        raise SMSDError(msg)
+        raise SmsdError(msg)
 
     def authorization(self, password=None):
         """Авторизации пользователя с помощью пароля. Если пароль не задан, то
@@ -510,7 +510,7 @@ class Smsd:
         try:
             self._get_param(COMMAND.CMD_POWERSTEP01_GET_RELE,
                             ERROR_OR_COMMAND.OK)
-        except SMSDError as err:
+        except SmsdError as err:
             if str(err) == "STATUS_RELE_CLR":
                 return 0
             if str(err) == "STATUS_RELE_SET":

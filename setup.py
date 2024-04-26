@@ -3,7 +3,7 @@
 from distutils.core import setup
 
 setup(name="python-smsd-lan",
-      version="0.0.1",
+      version="0.0.2",
       description="SMSD LAN-series controller library",
       url="https://github.com/RAA80/python-smsd-lan",
       author="Alexey Ryadno",

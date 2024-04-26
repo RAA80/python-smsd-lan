@@ -7,7 +7,7 @@ from socket import AF_INET, SOCK_STREAM, socket
 
 from serial import Serial
 
-from .smsd import Smsd, SMSDError
+from .smsd import Smsd, SmsdError
 
 _logger = logging.getLogger(__name__)
 _logger.addHandler(logging.NullHandler())
@@ -70,22 +70,34 @@ class SmsdUsbClient(BaseClient):
         self.socket.reset_input_buffer()
         self.socket.reset_output_buffer()
 
-        packet = packet.replace(b"\xFA", b"\xFE" + b"\x7A").\
-                        replace(b"\xFB", b"\xFE" + b"\x7B").\
-                        replace(b"\xFE", b"\xFE" + b"\x7E")
-        packet = b"\xFA" + packet + b"\xFB"
+        packet = self._escape(packet)
 
         self.socket.write(packet)
         answer = self.socket.read_until(b"\xFB")
 
         if not answer or answer[0] != ord(b"\xFA") or answer[-1] != ord(b"\xFB"):
             msg = "Invalid message format"
-            raise SMSDError(msg)
+            raise SmsdError(msg)
 
-        answer = answer[1:-1]
-        return answer.replace(b"\xFE" + b"\x7A", b"\xFA").\
-                      replace(b"\xFE" + b"\x7B", b"\xFB").\
-                      replace(b"\xFE" + b"\x7E", b"\xFE")
+        return self._unescape(answer)
+
+    @staticmethod
+    def _escape(packet):
+        """Замена специальных символов внутри пакета парой байтов."""
+
+        packet = packet.replace(b"\xFA", b"\xFE\x7A").\
+                        replace(b"\xFB", b"\xFE\x7B").\
+                        replace(b"\xFE", b"\xFE\x7E")
+        return b"\xFA" + packet + b"\xFB"
+
+    @staticmethod
+    def _unescape(packet):
+        """Обратная замена пары байтов внутри пакета на символы."""
+
+        packet = packet[1:-1]
+        return packet.replace(b"\xFE\x7A", b"\xFA").\
+                      replace(b"\xFE\x7B", b"\xFB").\
+                      replace(b"\xFE\x7E", b"\xFE")
 
 
 class SmsdTcpClient(BaseClient):
