@@ -1,6 +1,6 @@
 #! /usr/bin/env python3
 
-"""Протокол обмена данными с SMSD‑LAN."""
+"""Протокол обмена данными с SMSD-LAN."""
 
 from ctypes import LittleEndianStructure, Structure, c_ubyte, c_uint, c_ushort
 from enum import Enum
@@ -22,8 +22,8 @@ class CMD_TYPE(Enum):
     CODE_CMD_POWERSTEP01_R_MEM3 = 0x0A  # команда чтения программы управления из банка памяти 3
     CODE_CMD_CONFIG_SET = 0x0B          # команда записи настроек LAN
     CODE_CMD_CONFIG_GET = 0x0C          # команда чтения настроек LAN
-    CODE_CMD_PASSWORD_SET = 0x0D        # изменения пароля для авторизации
-    CODE_CMD_ERROR_GET = 0x0E           # чтения количества включений рабочего режима Контроллера и статистики по ошибкам
+    CODE_CMD_PASSWORD_SET = 0x0D        # команда изменения пароля для авторизации
+    CODE_CMD_ERROR_GET = 0x0E           # команда чтения количества включений рабочего режима Контроллера и статистики по ошибкам
 
 
 class ERROR_OR_COMMAND(Enum):
@@ -205,11 +205,11 @@ class SMSD_LAN_CONFIG_TYPE(Structure):
 
     _pack_ = 1
     _fields_ = [
-        ("MAC", c_ubyte * 6),
-        ("IP", c_ubyte * 4),
-        ("SN", c_ubyte * 4),
-        ("GW", c_ubyte * 4),
-        ("DNS", c_ubyte * 4),
-        ("PORT", c_ushort),
-        ("DHCP", c_ubyte),
+        ("MAC", c_ubyte * 6),       # MAC адрес лазера
+        ("IP", c_ubyte * 4),        # IP адрес лазера
+        ("SN", c_ubyte * 4),        # адрес подсети лазера
+        ("GW", c_ubyte * 4),        # адрес шлюза лазера
+        ("DNS", c_ubyte * 4),       # адрес DNS лазера
+        ("PORT", c_ushort),         # номер порта
+        ("DHCP", c_ubyte),          # включен DHCP или нет
     ]

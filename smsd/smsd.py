@@ -36,17 +36,15 @@ class Smsd:
 
         return -sum(data) & 0xFF
 
-    def _make_request(self, command, length, buffer):
+    def _make_request(self, command, buffer):
         """Формирование пакета для записи."""
-
-        data = (c_ubyte * 1024)(*bytearray(buffer))
 
         lan_command_type = LAN_COMMAND_TYPE()
         lan_command_type.VER = self.version
         lan_command_type.TYPE = command.value
         lan_command_type.ID = next(self.cmd_id)
-        lan_command_type.LENGTH = length
-        lan_command_type.DATA = data
+        lan_command_type.LENGTH = len(buffer)
+        lan_command_type.DATA = (c_ubyte * 1024)(*bytearray(buffer))
         lan_command_type.XOR = self._checksum([lan_command_type.VER,
                                                lan_command_type.TYPE,
                                                lan_command_type.ID,
@@ -79,7 +77,7 @@ class Smsd:
 
         buffer = string_at(byref(data), sizeof(data))
 
-        request = self._make_request(cmd_type, sizeof(data), buffer)
+        request = self._make_request(cmd_type, buffer)
         if answer := self._bus_exchange(request):
             ret_data = self._parse_answer(answer)
             structure = cast(ret_data, POINTER(struct_type)).contents
