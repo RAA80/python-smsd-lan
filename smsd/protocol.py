@@ -205,11 +205,11 @@ class SMSD_LAN_CONFIG_TYPE(Structure):
 
     _pack_ = 1
     _fields_ = [
-        ("MAC", c_ubyte * 6),       # MAC адрес лазера
-        ("IP", c_ubyte * 4),        # IP адрес лазера
-        ("SN", c_ubyte * 4),        # адрес подсети лазера
-        ("GW", c_ubyte * 4),        # адрес шлюза лазера
-        ("DNS", c_ubyte * 4),       # адрес DNS лазера
+        ("MAC", c_ubyte * 6),       # MAC адрес
+        ("IP", c_ubyte * 4),        # IP адрес
+        ("SN", c_ubyte * 4),        # адрес подсети
+        ("GW", c_ubyte * 4),        # адрес шлюза
+        ("DNS", c_ubyte * 4),       # адрес DNS
         ("PORT", c_ushort),         # номер порта
         ("DHCP", c_ubyte),          # включен DHCP или нет
     ]
