@@ -2,11 +2,11 @@
 
 """Протокол обмена данными с SMSD-LAN."""
 
-from ctypes import LittleEndianStructure, Structure, c_ubyte, c_uint, c_ushort
-from enum import Enum
+from ctypes import LittleEndianStructure, Structure, Union, c_ubyte, c_uint, c_ushort
+from enum import IntEnum
 
 
-class CMD_TYPE(Enum):
+class CMD_TYPE(IntEnum):
     """Команда, передаваемая по сети."""
 
     CODE_CMD_REQUEST = 0x00             # команда авторизации (поле DATA пакета содержит информацию для авторизации)
@@ -26,7 +26,7 @@ class CMD_TYPE(Enum):
     CODE_CMD_ERROR_GET = 0x0E           # команда чтения количества включений рабочего режима Контроллера и статистики по ошибкам
 
 
-class ERROR_OR_COMMAND(Enum):
+class ERROR_OR_COMMAND(IntEnum):
     """Список возможных вариантов значений поля ERROR_OR_COMMAND."""
 
     OK = 0x00                           # без ошибок
@@ -55,7 +55,7 @@ class ERROR_OR_COMMAND(Enum):
     STATUS_RELE_CLR = 0x17              # реле выключено
 
 
-class COMMAND(Enum):
+class COMMAND(IntEnum):
     """Список кодов исполнительных команд."""
 
     CMD_POWERSTEP01_END = 0x00                      # обозначение конца программы
@@ -213,3 +213,72 @@ class SMSD_LAN_CONFIG_TYPE(Structure):
         ("PORT", c_ushort),         # номер порта
         ("DHCP", c_ubyte),          # включен DHCP или нет
     ]
+
+
+#####################################################
+
+
+class STATUS_IN_EVENT_BITS(Structure):
+    """Битовая карта состояний входных сигналов."""
+
+    _fields_ = [
+        ("INT_0", c_uint, 1),   # Событие на входном сигнале 0
+        ("INT_1", c_uint, 1),   # Событие на входном сигнале 1
+        ("INT_2", c_uint, 1),   # Событие на входном сигнале 2
+        ("INT_3", c_uint, 1),   # Событие на входном сигнале 3
+        ("INT_4", c_uint, 1),   # Событие на входном сигнале 4
+        ("INT_5", c_uint, 1),   # Событие на входном сигнале 5
+        ("INT_6", c_uint, 1),   # Событие на входном сигнале 6
+        ("INT_7", c_uint, 1),   # Событие на входном сигнале 7
+
+        ("MASK_0", c_uint, 1),  # Маскирование входного сигнала 0
+        ("MASK_1", c_uint, 1),  # Маскирование входного сигнала 1
+        ("MASK_2", c_uint, 1),  # Маскирование входного сигнала 2
+        ("MASK_3", c_uint, 1),  # Маскирование входного сигнала 3
+        ("MASK_4", c_uint, 1),  # Маскирование входного сигнала 4
+        ("MASK_5", c_uint, 1),  # Маскирование входного сигнала 5
+        ("MASK_6", c_uint, 1),  # Маскирование входного сигнала 6
+        ("MASK_7", c_uint, 1),  # Маскирование входного сигнала 7
+
+        ("WAIT_0", c_uint, 1),  # Ожидание входного сигнала 0
+        ("WAIT_1", c_uint, 1),  # Ожидание входного сигнала 1
+        ("WAIT_2", c_uint, 1),  # Ожидание входного сигнала 2
+        ("WAIT_3", c_uint, 1),  # Ожидание входного сигнала 3
+        ("WAIT_4", c_uint, 1),  # Ожидание входного сигнала 4
+        ("WAIT_5", c_uint, 1),  # Ожидание входного сигнала 5
+        ("WAIT_6", c_uint, 1),  # Ожидание входного сигнала 6
+        ("WAIT_7", c_uint, 1),  # Ожидание входного сигнала 7
+    ]
+
+
+class STATUS_IN_EVENT(Union):
+    """Состояния входных сигналов."""
+
+    _pack_ = 1
+    _anonymous_ = ("bits",)
+    _fields_ = [("bits", STATUS_IN_EVENT_BITS),
+                ("as_byte", c_uint),
+            ]
+
+
+class MODE_BITS(LittleEndianStructure):
+    """Битовая карта настроек управления двигателем."""
+
+    _fields_ = [
+        ("CURRENT_OR_VOLTAGE", c_uint, 1),  # тип управления двигателем (0 – вольтовый режим, 1 – токовый режим)
+        ("MOTOR_TYPE", c_uint, 6),          # модель двигателя для вольтового режима управления
+        ("MICROSTEPPING", c_uint, 3),       # дробление шага
+        ("WORK_CURRENT", c_uint, 7),        # рабочий ток
+        ("STOP_CURRENT", c_uint, 2),        # ток удержания
+        ("PROGRAM_N", c_uint, 2),           # номер программы для старта внешними сигналами
+    ]
+
+
+class MODE(Union):
+    """Настройки управления двигателем."""
+
+    _pack_ = 1
+    _anonymous_ = ("bits",)
+    _fields_ = [("bits", MODE_BITS),
+                ("as_byte", c_uint),
+            ]
