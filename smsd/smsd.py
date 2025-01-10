@@ -96,8 +96,8 @@ class Smsd:
             raise SmsdError(msg)
 
     def _execute(self, command: CMD_TYPE,
-                       data: Structure | Array[c_ubyte] | Array[c_char],
-                       ret_type: object) -> Structure:
+                       data: SMSD_CMD_TYPE | SMSD_LAN_CONFIG_TYPE | Array[c_ubyte] | Array[c_char],
+                       ret_type: type[Structure]) -> Structure:
         """Выполнение команды и получение ответа."""
 
         buffer = string_at(byref(data), sizeof(data))
@@ -105,7 +105,7 @@ class Smsd:
         answer = self._bus_exchange(request)
         ret_data = self._parse_answer(answer)
 
-        return cast(ret_data, POINTER(ret_type)).contents   # type: ignore
+        return cast(ret_data, POINTER(ret_type)).contents
 
     def _password(self, command: CMD_TYPE, err_or_cmd: ERROR_OR_COMMAND,
                         password: str) -> bool:
@@ -120,13 +120,13 @@ class Smsd:
 
         return True
 
-    def _config_or_stats(self, command: CMD_TYPE, structure: Structure) -> Structure:
+    def _config_or_stats(self, command: CMD_TYPE, structure: type[Structure]) -> Structure:
         """Посылка команды чтения настроек или статистики."""
 
         data = create_string_buffer(0)
-        structure = self._execute(command, data, structure)
+        result = self._execute(command, data, structure)
 
-        return deepcopy(structure)
+        return deepcopy(result)
 
     def _powerstep01(self, command: COMMAND, value: int,
                      err_or_cmd: ERROR_OR_COMMAND) -> Structure:
@@ -187,7 +187,7 @@ class Smsd:
         """Чтение текущих сетевых настроек."""
 
         lan_config = self._config_or_stats(CMD_TYPE.CODE_CMD_CONFIG_GET,
-                                           SMSD_LAN_CONFIG_TYPE)    # type: ignore
+                                           SMSD_LAN_CONFIG_TYPE)
         return LAN_CONFIG(MAC=tuple(lan_config.MAC),
                           IP=tuple(lan_config.IP),
                           SN=tuple(lan_config.SN),
