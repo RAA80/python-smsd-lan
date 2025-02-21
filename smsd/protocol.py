@@ -256,9 +256,10 @@ class STATUS_IN_EVENT(Union):
 
     _pack_ = 1
     _anonymous_ = ("bits",)
-    _fields_ = [("bits", STATUS_IN_EVENT_BITS),
-                ("as_byte", c_uint),
-            ]
+    _fields_ = [
+        ("bits", STATUS_IN_EVENT_BITS),
+        ("as_byte", c_uint),
+    ]
 
 
 class MODE_BITS(LittleEndianStructure):
@@ -279,6 +280,7 @@ class MODE(Union):
 
     _pack_ = 1
     _anonymous_ = ("bits",)
-    _fields_ = [("bits", MODE_BITS),
-                ("as_byte", c_uint),
-            ]
+    _fields_ = [
+        ("bits", MODE_BITS),
+        ("as_byte", c_uint),
+    ]

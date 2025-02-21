@@ -38,7 +38,7 @@ class SmsdUsbClient(Smsd):
     def __del__(self) -> None:
         """Закрытие соединения с устройством при удалении объекта."""
 
-        if self.socket:
+        if self.socket.is_open:
             self.socket.close()
 
     @log
@@ -81,12 +81,14 @@ class SmsdUsbClient(Smsd):
 class SmsdTcpClient(Smsd):
     """Класс клиента для управления SMSD-LAN по протоколу TCP."""
 
-    def __init__(self, address: str, port: int = 5000, timeout: float = 1.0) -> None:
+    def __init__(self, address: str, timeout: float = 1.0) -> None:
         """Инициализация класса клиента с указанными параметрами."""
 
+        ip, tcp_port = address.split(":")
         self.socket = socket(AF_INET, SOCK_STREAM)
         self.socket.settimeout(timeout)
-        self.socket.connect((address, port))
+        self.socket.connect((ip, int(tcp_port)))
+
         super().__init__()
 
     def __del__(self) -> None:

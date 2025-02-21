@@ -11,7 +11,7 @@ logging.basicConfig(level=logging.INFO)
 
 
 if __name__ == "__main__":
-    client = SmsdTcpClient(address="192.168.1.2", port=5000, timeout=1.0)
+    client = SmsdTcpClient(address="192.168.1.2:5000", timeout=1.0)
     # client = SmsdUsbClient(address="COM7", timeout=1.0)
 
     # sleep(2)  # Без паузы при работе через USB при первом включении возвращается ошибка ERROR_ACCESS_TIMEOUT
