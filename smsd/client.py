@@ -14,7 +14,7 @@ _logger = logging.getLogger(__name__)
 _logger.addHandler(logging.NullHandler())
 
 
-def log(func: Callable) -> Callable:
+def log(func: Callable[..., bytes]) -> Callable[..., bytes]:    # type: ignore
     """Вывод отладочной информации."""
 
     def wrapper(self: Callable[[bytes], bytes], packet: bytes) -> bytes:
