@@ -8,29 +8,18 @@ from copy import deepcopy
 from ctypes import (POINTER, Array, Structure, byref, c_char, c_ubyte, cast,
                     create_string_buffer, sizeof, string_at)
 from itertools import cycle
-from typing import NamedTuple
+from typing import TypeVar
 
-from .protocol import (CMD_TYPE, COMMAND, COMMANDS_RETURN_DATA_TYPE, ERROR_OR_COMMAND,
-                       LAN_COMMAND_TYPE, LAN_ERROR_STATISTICS, MODE, SMSD_CMD_TYPE,
-                       SMSD_LAN_CONFIG_TYPE, STATUS_IN_EVENT)
+from smsd.protocol import (CMD_TYPE, COMMAND, COMMANDS_RETURN_DATA_TYPE,
+                           ERROR_OR_COMMAND, LAN_COMMAND_TYPE, LAN_ERROR_STATISTICS,
+                           MODE, SMSD_CMD_TYPE, SMSD_LAN_CONFIG_TYPE, STATUS_IN_EVENT)
 
 
 class SmsdError(Exception):
     pass
 
 
-IP4 = tuple[int, int, int, int]
-IP6 = tuple[int, int, int, int, int, int]
-
-
-class LAN_CONFIG(NamedTuple):
-    MAC: IP6
-    IP: IP4
-    SN: IP4
-    GW: IP4
-    DNS: IP4
-    PORT: int
-    DHCP: int
+T = TypeVar("T", bound=Structure)
 
 
 class Smsd:
@@ -56,48 +45,49 @@ class Smsd:
     def _make_request(self, command: CMD_TYPE, buffer: bytes) -> bytes:
         """Формирование пакета для записи."""
 
-        lan_command_type = LAN_COMMAND_TYPE()
-        lan_command_type.VER = self.version
-        lan_command_type.TYPE = command.value
-        lan_command_type.ID = next(self.cmd_id)
-        lan_command_type.LENGTH = len(buffer)
-        lan_command_type.DATA = (c_ubyte * 1024)(*buffer)
-        lan_command_type.XOR = self._checksum([lan_command_type.VER,
-                                               lan_command_type.TYPE,
-                                               lan_command_type.ID,
-                                               lan_command_type.LENGTH & 0xFF,
-                                               lan_command_type.LENGTH >> 8,
-                                              *lan_command_type.DATA[:lan_command_type.LENGTH]])
-        structure_lenght = 6 + lan_command_type.LENGTH
-        return string_at(byref(lan_command_type), structure_lenght)
+        lan_cmd_type = LAN_COMMAND_TYPE()
+        lan_cmd_type.VER = self.version
+        lan_cmd_type.TYPE = command.value
+        lan_cmd_type.ID = next(self.cmd_id)
+        lan_cmd_type.LENGTH = len(buffer)
+        lan_cmd_type.DATA = (c_ubyte * 1024)(*buffer)
+        lan_cmd_type.XOR = self._checksum([lan_cmd_type.VER,
+                                           lan_cmd_type.TYPE,
+                                           lan_cmd_type.ID,
+                                           lan_cmd_type.LENGTH & 0xFF,
+                                           lan_cmd_type.LENGTH >> 8,
+                                          *lan_cmd_type.DATA[:lan_cmd_type.LENGTH]])
+        structure_lenght = 6 + lan_cmd_type.LENGTH
+        return string_at(byref(lan_cmd_type), structure_lenght)
 
     def _parse_answer(self, buffer: bytes) -> Array[c_char]:
         """Расшифровка прочитанного пакета."""
 
-        lan_command_type = cast(create_string_buffer(buffer), POINTER(LAN_COMMAND_TYPE)).contents
-        xor = self._checksum([lan_command_type.VER,
-                              lan_command_type.TYPE,
-                              lan_command_type.ID,
-                              lan_command_type.LENGTH & 0xFF,
-                              lan_command_type.LENGTH >> 8,
-                             *lan_command_type.DATA[:lan_command_type.LENGTH]])
-        if xor != lan_command_type.XOR:
+        lan_cmd_type = cast(create_string_buffer(buffer), POINTER(LAN_COMMAND_TYPE)).contents
+        xor = self._checksum([lan_cmd_type.VER,
+                              lan_cmd_type.TYPE,
+                              lan_cmd_type.ID,
+                              lan_cmd_type.LENGTH & 0xFF,
+                              lan_cmd_type.LENGTH >> 8,
+                             *lan_cmd_type.DATA[:lan_cmd_type.LENGTH]])
+        if xor != lan_cmd_type.XOR:
             msg = "Invalid message checksum"
             raise SmsdError(msg)
 
-        return create_string_buffer(bytes(lan_command_type.DATA[:lan_command_type.LENGTH]))
+        return create_string_buffer(bytes(lan_cmd_type.DATA[:lan_cmd_type.LENGTH]))
 
     @staticmethod
-    def _check_error(err_or_cmd: ERROR_OR_COMMAND, structure: Structure) -> None:
+    def _check_error(err_or_cmd: ERROR_OR_COMMAND, structure: Structure) -> bool:
         """Проверка возвращаемого значения на ошибку."""
 
         if err_or_cmd.value != structure.ERROR_OR_COMMAND:
             msg = f"{ERROR_OR_COMMAND(structure.ERROR_OR_COMMAND).name}"
             raise SmsdError(msg)
+        return True
 
     def _execute(self, command: CMD_TYPE,
                        data: SMSD_CMD_TYPE | SMSD_LAN_CONFIG_TYPE | Array[c_ubyte] | Array[c_char],
-                       ret_type: type[Structure]) -> Structure:
+                       ret_type: type[T]) -> T:
         """Выполнение команды и получение ответа."""
 
         buffer = string_at(byref(data), sizeof(data))
@@ -116,11 +106,9 @@ class Smsd:
                (c_ubyte * 8)(*(0xEF, 0xCD, 0xAB, 0x89, 0x67, 0x45, 0x23, 0x01))
 
         structure = self._execute(command, data, COMMANDS_RETURN_DATA_TYPE)
-        self._check_error(err_or_cmd, structure)
+        return self._check_error(err_or_cmd, structure)
 
-        return True
-
-    def _config_or_stats(self, command: CMD_TYPE, structure: type[Structure]) -> Structure:
+    def _config_or_stats(self, command: CMD_TYPE, structure: type[T]) -> T:
         """Посылка команды чтения настроек или статистики."""
 
         data = create_string_buffer(0)
@@ -183,37 +171,18 @@ class Smsd:
                               ERROR_OR_COMMAND.OK,
                               password)
 
-    def get_lan_config(self) -> LAN_CONFIG:
+    def get_lan_config(self) -> SMSD_LAN_CONFIG_TYPE:
         """Чтение текущих сетевых настроек."""
 
-        lan_config = self._config_or_stats(CMD_TYPE.CODE_CMD_CONFIG_GET,
-                                           SMSD_LAN_CONFIG_TYPE)
-        return LAN_CONFIG(MAC=tuple(lan_config.MAC),
-                          IP=tuple(lan_config.IP),
-                          SN=tuple(lan_config.SN),
-                          GW=tuple(lan_config.GW),
-                          DNS=tuple(lan_config.DNS),
-                          PORT=lan_config.PORT,
-                          DHCP=lan_config.DHCP)
+        return self._config_or_stats(CMD_TYPE.CODE_CMD_CONFIG_GET,
+                                     SMSD_LAN_CONFIG_TYPE)
 
-    def set_lan_config(self, mac: IP6, ip: IP4, sn: IP4, gw: IP4, dns: IP4,
-                             port: int, dhcp: int) -> bool:
+    def set_lan_config(self, config: SMSD_LAN_CONFIG_TYPE) -> bool:
         """Запись новых сетевых настроек."""
 
-        lan_config = SMSD_LAN_CONFIG_TYPE()
-        lan_config.MAC = (c_ubyte * 6)(*mac)
-        lan_config.IP = (c_ubyte * 4)(*ip)
-        lan_config.SN = (c_ubyte * 4)(*sn)
-        lan_config.GW = (c_ubyte * 4)(*gw)
-        lan_config.DNS = (c_ubyte * 4)(*dns)
-        lan_config.PORT = port
-        lan_config.DHCP = dhcp
-
-        structure = self._execute(CMD_TYPE.CODE_CMD_CONFIG_SET, lan_config,
+        structure = self._execute(CMD_TYPE.CODE_CMD_CONFIG_SET, config,
                                   COMMANDS_RETURN_DATA_TYPE)
-        self._check_error(ERROR_OR_COMMAND.OK, structure)
-
-        return True
+        return self._check_error(ERROR_OR_COMMAND.OK, structure)
 
     def get_error_statistics(self) -> LAN_ERROR_STATISTICS:
         """Чтения из памяти контроллера информации о количестве включений
@@ -221,7 +190,7 @@ class Smsd:
         """
 
         return self._config_or_stats(CMD_TYPE.CODE_CMD_ERROR_GET,
-                                     LAN_ERROR_STATISTICS)      # type: ignore
+                                     LAN_ERROR_STATISTICS)
 
     def get_max_speed(self) -> int:
         """Чтение текущего значения установленной максимальной скорости."""

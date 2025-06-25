@@ -8,7 +8,7 @@ from typing import Callable
 
 from serial import Serial
 
-from .smsd import Smsd, SmsdError
+from smsd.smsd import Smsd, SmsdError
 
 _logger = logging.getLogger(__name__)
 _logger.addHandler(logging.NullHandler())
