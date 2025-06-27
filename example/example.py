@@ -6,6 +6,7 @@ import logging
 from time import sleep
 
 from smsd.client import SmsdTcpClient, SmsdUsbClient
+from smsd.protocol import MODE, SMSD_LAN_CONFIG_TYPE
 
 logging.basicConfig(level=logging.INFO)
 
@@ -19,6 +20,16 @@ if __name__ == "__main__":
     print(f"authorization: {client.authorization()}")
     # print(f"set_password: {client.set_password('12345678')}")
 
+    # lan = SMSD_LAN_CONFIG_TYPE()
+    # lan.MAC = (0x00, 0xf8, 0xdc, 0x3f, 0x00, 0x00)
+    # lan.IP = (192, 168, 1, 2)
+    # lan.SN = (255, 255, 0, 0)
+    # lan.GW = (192, 168, 1, 1)
+    # lan.DNS = (0, 0, 0, 0)
+    # lan.PORT = 5000
+    # lan.DHCP = 1
+    # print(f"set_lan_config: {client.set_lan_config(lan)}")
+
     lan = client.get_lan_config()
     print(f"get_lan_config: {lan}")
     print(f"    mac: {tuple(lan.MAC)}")
@@ -28,7 +39,6 @@ if __name__ == "__main__":
     print(f"    dns: {tuple(lan.DNS)}")
     print(f"    port: {lan.PORT}")
     print(f"    dhcp: {lan.DHCP}")
-    # print(f"set_lan_config: {client.set_lan_config(lan)}")
 
     stats = client.get_error_statistics()
     print(f"get_error_statistics: {stats}")
@@ -61,7 +71,15 @@ if __name__ == "__main__":
     print(f"set_acc: {client.set_acc(50)}")
     print(f"set_dec: {client.set_dec(50)}")
 
-    print(f"set_mode: {client.set_mode(current_or_voltage=1, motor_type=30, microstepping=4, work_current=15, stop_current=0)}")
+    mode = MODE()
+    mode.CURRENT_OR_VOLTAGE = 1
+    mode.MOTOR_TYPE = 30
+    mode.MICROSTEPPING = 4
+    mode.WORK_CURRENT = 15
+    mode.STOP_CURRENT = 0
+    mode.PROGRAM_N = 0
+    print(f"set_mode: {client.set_mode(mode)}")
+
     mode = client.get_mode()
     print(f"get_mode: {mode}")
     print(f"    current_or_voltage: {mode.CURRENT_OR_VOLTAGE}")

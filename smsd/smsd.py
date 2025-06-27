@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 from ctypes import (POINTER, Array, Structure, byref, c_char, c_ubyte, cast,
                     create_string_buffer, sizeof, string_at)
 from itertools import cycle
@@ -63,7 +62,8 @@ class Smsd:
     def _parse_answer(self, buffer: bytes) -> Array[c_char]:
         """Расшифровка прочитанного пакета."""
 
-        lan_cmd_type = cast(create_string_buffer(buffer), POINTER(LAN_COMMAND_TYPE)).contents
+        data = create_string_buffer(buffer)
+        lan_cmd_type = cast(data, POINTER(LAN_COMMAND_TYPE)).contents
         xor = self._checksum([lan_cmd_type.VER,
                               lan_cmd_type.TYPE,
                               lan_cmd_type.ID,
@@ -81,7 +81,7 @@ class Smsd:
         """Проверка возвращаемого значения на ошибку."""
 
         if err_or_cmd.value != structure.ERROR_OR_COMMAND:
-            msg = f"{ERROR_OR_COMMAND(structure.ERROR_OR_COMMAND).name}"
+            msg = ERROR_OR_COMMAND(structure.ERROR_OR_COMMAND).name
             raise SmsdError(msg)
         return True
 
@@ -112,12 +112,10 @@ class Smsd:
         """Посылка команды чтения настроек или статистики."""
 
         data = create_string_buffer(0)
-        result = self._execute(command, data, structure)
-
-        return deepcopy(result)
+        return self._execute(command, data, structure)
 
     def _powerstep01(self, command: COMMAND, value: int,
-                     err_or_cmd: ERROR_OR_COMMAND) -> Structure:
+                     err_or_cmd: ERROR_OR_COMMAND) -> COMMANDS_RETURN_DATA_TYPE:
         """Посылка команды POWERSTEP01."""
 
         smsd_cmd_type = SMSD_CMD_TYPE()
@@ -154,7 +152,7 @@ class Smsd:
         raise SmsdError(msg)
 
     def authorization(self, password: str = "") -> bool:
-        """Авторизации пользователя с помощью пароля. Если пароль не задан, то
+        """Авторизация пользователя с помощью пароля. Если пароль не задан, то
         используется пароль по умолчанию.
         """
 
@@ -185,7 +183,7 @@ class Smsd:
         return self._check_error(ERROR_OR_COMMAND.OK, structure)
 
     def get_error_statistics(self) -> LAN_ERROR_STATISTICS:
-        """Чтения из памяти контроллера информации о количестве включений
+        """Чтение из памяти контроллера информации о количестве включений
         рабочего режима контроллера и статистики по ошибкам.
         """
 
@@ -250,16 +248,12 @@ class Smsd:
                                        ERROR_OR_COMMAND.COMMAND_GET_MODE)
         return mode
 
-    def set_mode(self, current_or_voltage: int, motor_type: int, microstepping: int,
-                       work_current: int, stop_current: int) -> bool:
+    def set_mode(self, mode: MODE) -> bool:
         """Установка параметров управления двигателем."""
-
-        value = (stop_current << 17) | (work_current << 10) | \
-                (microstepping << 7) | (motor_type << 1) | current_or_voltage
 
         return self._set_param(COMMAND.CMD_POWERSTEP01_SET_MODE,
                                ERROR_OR_COMMAND.OK,
-                               value)
+                               mode.as_byte)
 
     def set_acc(self, acceleration: int) -> bool:
         """Установка значения ускорения двигателя."""
