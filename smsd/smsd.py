@@ -7,11 +7,14 @@ from __future__ import annotations
 from ctypes import (POINTER, Array, Structure, byref, c_char, c_ubyte, cast,
                     create_string_buffer, sizeof, string_at)
 from itertools import cycle
-from typing import TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 from smsd.protocol import (CMD_TYPE, COMMAND, COMMANDS_RETURN_DATA_TYPE,
                            ERROR_OR_COMMAND, LAN_COMMAND_TYPE, LAN_ERROR_STATISTICS,
                            MODE, SMSD_CMD_TYPE, SMSD_LAN_CONFIG_TYPE, STATUS_IN_EVENT)
+
+if TYPE_CHECKING:
+    from _ctypes import _CData
 
 
 class SmsdError(Exception):
@@ -27,13 +30,22 @@ class Smsd:
     def __init__(self) -> None:
         """Инициализация класса Smsd."""
 
-        self.version = self.get_version()
+        self.version = self._get_version()
         self.cmd_id = cycle(range(256))
 
     def _bus_exchange(self, packet: bytes) -> bytes:
         """Обмен по интерфейсу."""
 
         raise NotImplementedError
+
+    def _get_version(self) -> int:
+        """Получение версии протокола."""
+
+        if answer := self._bus_exchange(b""):
+            return answer[1]
+
+        msg = "Get protocol version error"
+        raise SmsdError(msg)
 
     @staticmethod
     def _checksum(data: list[int]) -> int:
@@ -85,9 +97,7 @@ class Smsd:
             raise SmsdError(msg)
         return True
 
-    def _execute(self, command: CMD_TYPE,
-                       data: SMSD_CMD_TYPE | SMSD_LAN_CONFIG_TYPE | Array[c_ubyte] | Array[c_char],
-                       ret_type: type[T]) -> T:
+    def _execute(self, command: CMD_TYPE, data: _CData, ret_type: type[T]) -> T:
         """Выполнение команды и получение ответа."""
 
         buffer = string_at(byref(data), sizeof(data))
@@ -141,15 +151,6 @@ class Smsd:
         return True
 
     # Основные функции
-
-    def get_version(self) -> int:
-        """Получение версии протокола."""
-
-        if answer := self._bus_exchange(b""):
-            return answer[1]
-
-        msg = "Get protocol version error"
-        raise SmsdError(msg)
 
     def authorization(self, password: str = "") -> bool:
         """Авторизация пользователя с помощью пароля. Если пароль не задан, то

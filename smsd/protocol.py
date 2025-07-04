@@ -218,7 +218,7 @@ class SMSD_LAN_CONFIG_TYPE(Structure):
 #####################################################
 
 
-class STATUS_IN_EVENT_BITS(Structure):
+class STATUS_IN_EVENT_BITS(LittleEndianStructure):
     """Битовая карта состояний входных сигналов."""
 
     _fields_ = [
@@ -254,7 +254,6 @@ class STATUS_IN_EVENT_BITS(Structure):
 class STATUS_IN_EVENT(Union):
     """Состояния входных сигналов."""
 
-    _pack_ = 1
     _anonymous_ = ("bits",)
     _fields_ = [
         ("bits", STATUS_IN_EVENT_BITS),
@@ -278,7 +277,6 @@ class MODE_BITS(LittleEndianStructure):
 class MODE(Union):
     """Настройки управления двигателем."""
 
-    _pack_ = 1
     _anonymous_ = ("bits",)
     _fields_ = [
         ("bits", MODE_BITS),
