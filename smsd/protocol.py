@@ -2,7 +2,7 @@
 
 """Протокол обмена данными с SMSD-LAN."""
 
-from ctypes import LittleEndianStructure, Structure, Union, c_ubyte, c_uint, c_ushort
+from ctypes import LittleEndianStructure, Union, c_ubyte, c_uint, c_ushort
 from enum import IntEnum
 
 
@@ -123,7 +123,7 @@ class COMMAND(IntEnum):
     CMD_POWERSTEP01_SCAN_MARK2_R = 0x3E             # поиск метки положения в обратном направлении
 
 
-class LAN_COMMAND_TYPE(Structure):
+class LAN_COMMAND_TYPE(LittleEndianStructure):
     """Структура информационного пакета передачи данных."""
 
     _pack_ = 1
@@ -137,7 +137,7 @@ class LAN_COMMAND_TYPE(Structure):
     ]
 
 
-class LAN_ERROR_STATISTICS(Structure):
+class LAN_ERROR_STATISTICS(LittleEndianStructure):
     """Структура счётчиков событий."""
 
     _pack_ = 1
@@ -177,7 +177,7 @@ class POWERSTEP_STATUS_TYPEDEF(LittleEndianStructure):
     ]
 
 
-class COMMANDS_RETURN_DATA_TYPE(Structure):
+class COMMANDS_RETURN_DATA_TYPE(LittleEndianStructure):
     """Ответ на команды CODE_CMD_RESPONSE или CODE_CMD_POWERSTEP01."""
 
     _anonymous_ = ("STATUS_POWERSTEP01",)
@@ -200,7 +200,7 @@ class SMSD_CMD_TYPE(LittleEndianStructure):
     ]
 
 
-class SMSD_LAN_CONFIG_TYPE(Structure):
+class SMSD_LAN_CONFIG_TYPE(LittleEndianStructure):
     """Структура сетевых настроек контроллера."""
 
     _pack_ = 1
@@ -281,4 +281,13 @@ class MODE(Union):
     _fields_ = [
         ("bits", MODE_BITS),
         ("as_byte", c_uint),
+    ]
+
+
+class MEMORY_BANK(LittleEndianStructure):
+    """Структура для чтения/записи исполнительных программ банка памяти контроллера."""
+
+    _pack_ = 1
+    _fields_ = [
+        ("data", SMSD_CMD_TYPE * 255),
     ]

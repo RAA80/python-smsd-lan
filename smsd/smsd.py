@@ -4,14 +4,15 @@
 
 from __future__ import annotations
 
-from ctypes import (POINTER, Array, Structure, byref, c_char, c_ubyte, cast,
+from ctypes import (POINTER, LittleEndianStructure, byref, c_ubyte, cast,
                     create_string_buffer, sizeof, string_at)
 from itertools import cycle
 from typing import TYPE_CHECKING, TypeVar
 
 from smsd.protocol import (CMD_TYPE, COMMAND, COMMANDS_RETURN_DATA_TYPE,
                            ERROR_OR_COMMAND, LAN_COMMAND_TYPE, LAN_ERROR_STATISTICS,
-                           MODE, SMSD_CMD_TYPE, SMSD_LAN_CONFIG_TYPE, STATUS_IN_EVENT)
+                           MEMORY_BANK, MODE, POWERSTEP_STATUS_TYPEDEF,
+                           SMSD_CMD_TYPE, SMSD_LAN_CONFIG_TYPE, STATUS_IN_EVENT)
 
 if TYPE_CHECKING:
     from _ctypes import _CData
@@ -21,7 +22,7 @@ class SmsdError(Exception):
     pass
 
 
-T = TypeVar("T", bound=Structure)
+T = TypeVar("T", bound=LittleEndianStructure)
 
 
 class Smsd:
@@ -30,8 +31,10 @@ class Smsd:
     def __init__(self) -> None:
         """Инициализация класса Smsd."""
 
-        self.version = self._get_version()
-        self.cmd_id = cycle(range(256))
+        self._version = self._get_version()
+        self._cmd_id = cycle(range(256))
+
+        self.status_powerstep01 = POWERSTEP_STATUS_TYPEDEF()
 
     def _bus_exchange(self, packet: bytes) -> bytes:
         """Обмен по интерфейсу."""
@@ -48,48 +51,40 @@ class Smsd:
         raise SmsdError(msg)
 
     @staticmethod
-    def _checksum(data: list[int]) -> int:
-        """Вычисление контрольной суммы."""
+    def _checksum(structure: LAN_COMMAND_TYPE) -> int:
+        """Вычисление контрольной суммы (исключая поле 'xor')."""
 
-        return -sum(data) & 0xFF
+        packet = string_at(byref(structure, 1), 5 + structure.LENGTH)
+        return -sum(packet) & 0xFF
 
     def _make_request(self, command: CMD_TYPE, buffer: bytes) -> bytes:
         """Формирование пакета для записи."""
 
         lan_cmd_type = LAN_COMMAND_TYPE()
-        lan_cmd_type.VER = self.version
+        lan_cmd_type.VER = self._version
         lan_cmd_type.TYPE = command.value
-        lan_cmd_type.ID = next(self.cmd_id)
+        lan_cmd_type.ID = next(self._cmd_id)
         lan_cmd_type.LENGTH = len(buffer)
         lan_cmd_type.DATA = (c_ubyte * 1024)(*buffer)
-        lan_cmd_type.XOR = self._checksum([lan_cmd_type.VER,
-                                           lan_cmd_type.TYPE,
-                                           lan_cmd_type.ID,
-                                           lan_cmd_type.LENGTH & 0xFF,
-                                           lan_cmd_type.LENGTH >> 8,
-                                          *lan_cmd_type.DATA[:lan_cmd_type.LENGTH]])
-        structure_lenght = 6 + lan_cmd_type.LENGTH
-        return string_at(byref(lan_cmd_type), structure_lenght)
+        lan_cmd_type.XOR = self._checksum(lan_cmd_type)
 
-    def _parse_answer(self, buffer: bytes) -> Array[c_char]:
+        return string_at(byref(lan_cmd_type), 6 + lan_cmd_type.LENGTH)
+
+    def _parse_answer(self, buffer: bytes) -> LAN_COMMAND_TYPE:
         """Расшифровка прочитанного пакета."""
 
         data = create_string_buffer(buffer)
         lan_cmd_type = cast(data, POINTER(LAN_COMMAND_TYPE)).contents
-        xor = self._checksum([lan_cmd_type.VER,
-                              lan_cmd_type.TYPE,
-                              lan_cmd_type.ID,
-                              lan_cmd_type.LENGTH & 0xFF,
-                              lan_cmd_type.LENGTH >> 8,
-                             *lan_cmd_type.DATA[:lan_cmd_type.LENGTH]])
-        if xor != lan_cmd_type.XOR:
+
+        if self._checksum(lan_cmd_type) != lan_cmd_type.XOR:
             msg = "Invalid message checksum"
             raise SmsdError(msg)
 
-        return create_string_buffer(bytes(lan_cmd_type.DATA[:lan_cmd_type.LENGTH]))
+        return lan_cmd_type
 
     @staticmethod
-    def _check_error(err_or_cmd: ERROR_OR_COMMAND, structure: Structure) -> bool:
+    def _check_error(err_or_cmd: ERROR_OR_COMMAND,
+                     structure: COMMANDS_RETURN_DATA_TYPE) -> bool:
         """Проверка возвращаемого значения на ошибку."""
 
         if err_or_cmd.value != structure.ERROR_OR_COMMAND:
@@ -103,29 +98,25 @@ class Smsd:
         buffer = string_at(byref(data), sizeof(data))
         request = self._make_request(command, buffer)
         answer = self._bus_exchange(request)
-        ret_data = self._parse_answer(answer)
+        structure = self._parse_answer(answer)
 
-        return cast(ret_data, POINTER(ret_type)).contents
+        return cast(structure.DATA, POINTER(ret_type)).contents
 
-    def _password(self, command: CMD_TYPE, err_or_cmd: ERROR_OR_COMMAND,
-                        password: str) -> bool:
-        """Посылка команды авторизации в устройство."""
-
-        data = (c_ubyte * 8)(*bytearray(password, encoding="ascii")[:8]) \
-               if password else \
-               (c_ubyte * 8)(*(0xEF, 0xCD, 0xAB, 0x89, 0x67, 0x45, 0x23, 0x01))
-
-        structure = self._execute(command, data, COMMANDS_RETURN_DATA_TYPE)
-        return self._check_error(err_or_cmd, structure)
-
-    def _config_or_stats(self, command: CMD_TYPE, structure: type[T]) -> T:
-        """Посылка команды чтения настроек или статистики."""
+    def _get_structure(self, command: CMD_TYPE, structure: type[T]) -> T:
+        """Посылка команды чтения структуры."""
 
         data = create_string_buffer(0)
         return self._execute(command, data, structure)
 
-    def _powerstep01(self, command: COMMAND, value: int,
-                     err_or_cmd: ERROR_OR_COMMAND) -> COMMANDS_RETURN_DATA_TYPE:
+    def _set_structure(self, command: CMD_TYPE, data: _CData,
+                             err_or_cmd: ERROR_OR_COMMAND) -> bool:
+        """Посылка команды записи структуры."""
+
+        structure = self._execute(command, data, COMMANDS_RETURN_DATA_TYPE)
+        return self._check_error(err_or_cmd, structure)
+
+    def _powerstep01(self, command: COMMAND, err_or_cmd: ERROR_OR_COMMAND,
+                           value: int) -> COMMANDS_RETURN_DATA_TYPE:
         """Посылка команды POWERSTEP01."""
 
         smsd_cmd_type = SMSD_CMD_TYPE()
@@ -134,62 +125,69 @@ class Smsd:
 
         result = self._execute(CMD_TYPE.CODE_CMD_POWERSTEP01, smsd_cmd_type,
                                COMMANDS_RETURN_DATA_TYPE)
+        self.status_powerstep01 = result.STATUS_POWERSTEP01
+
         self._check_error(err_or_cmd, result)
         return result
 
     def _get_param(self, command: COMMAND, err_or_cmd: ERROR_OR_COMMAND) -> int:
         """Чтение значения параметра из устройства."""
 
-        structure = self._powerstep01(command, 0, err_or_cmd)
+        structure = self._powerstep01(command, err_or_cmd, 0)
         return int(structure.RETURN_DATA)
 
     def _set_param(self, command: COMMAND, err_or_cmd: ERROR_OR_COMMAND,
                          value: int = 0) -> bool:
         """Запись нового значения параметра в устройство."""
 
-        self._powerstep01(command, value, err_or_cmd)
+        self._powerstep01(command, err_or_cmd, value)
         return True
 
     # Основные функции
 
     def authorization(self, password: str = "") -> bool:
-        """Авторизация пользователя с помощью пароля. Если пароль не задан, то
+        """Авторизация пользователя с помощью пароля. Если значение не задано, то
         используется пароль по умолчанию.
         """
 
-        return self._password(CMD_TYPE.CODE_CMD_REQUEST,
-                              ERROR_OR_COMMAND.OK_ACCESS,
-                              password)
+        data = (c_ubyte * 8)(*bytearray(password, encoding="ascii")[:8]) \
+               if password else \
+               (c_ubyte * 8)(*(0xEF, 0xCD, 0xAB, 0x89, 0x67, 0x45, 0x23, 0x01))
+
+        return self._set_structure(CMD_TYPE.CODE_CMD_REQUEST, data,
+                                   ERROR_OR_COMMAND.OK_ACCESS)
 
     def set_password(self, password: str = "") -> bool:
-        """Установка нового пароля для авторизации. Если новый пароль не задан,
-        то устанавливается пароль по умолчанию.
+        """Установка нового пароля авторизации. Если значение не задано, то
+        устанавливается пароль по умолчанию.
         """
 
-        return self._password(CMD_TYPE.CODE_CMD_PASSWORD_SET,
-                              ERROR_OR_COMMAND.OK,
-                              password)
+        data = (c_ubyte * 8)(*bytearray(password, encoding="ascii")[:8]) \
+               if password else \
+               (c_ubyte * 8)(*(0xEF, 0xCD, 0xAB, 0x89, 0x67, 0x45, 0x23, 0x01))
+
+        return self._set_structure(CMD_TYPE.CODE_CMD_PASSWORD_SET, data,
+                                   ERROR_OR_COMMAND.OK)
 
     def get_lan_config(self) -> SMSD_LAN_CONFIG_TYPE:
         """Чтение текущих сетевых настроек."""
 
-        return self._config_or_stats(CMD_TYPE.CODE_CMD_CONFIG_GET,
-                                     SMSD_LAN_CONFIG_TYPE)
+        return self._get_structure(CMD_TYPE.CODE_CMD_CONFIG_GET,
+                                   SMSD_LAN_CONFIG_TYPE)
 
     def set_lan_config(self, config: SMSD_LAN_CONFIG_TYPE) -> bool:
         """Запись новых сетевых настроек."""
 
-        structure = self._execute(CMD_TYPE.CODE_CMD_CONFIG_SET, config,
-                                  COMMANDS_RETURN_DATA_TYPE)
-        return self._check_error(ERROR_OR_COMMAND.OK, structure)
+        return self._set_structure(CMD_TYPE.CODE_CMD_CONFIG_SET, config,
+                                   ERROR_OR_COMMAND.OK)
 
     def get_error_statistics(self) -> LAN_ERROR_STATISTICS:
         """Чтение из памяти контроллера информации о количестве включений
         рабочего режима контроллера и статистики по ошибкам.
         """
 
-        return self._config_or_stats(CMD_TYPE.CODE_CMD_ERROR_GET,
-                                     LAN_ERROR_STATISTICS)
+        return self._get_structure(CMD_TYPE.CODE_CMD_ERROR_GET,
+                                   LAN_ERROR_STATISTICS)
 
     def get_max_speed(self) -> int:
         """Чтение текущего значения установленной максимальной скорости."""
@@ -635,6 +633,54 @@ class Smsd:
         return self._set_param(COMMAND.CMD_POWERSTEP01_LOOP_PROGRAM,
                                ERROR_OR_COMMAND.OK,
                                cycles << 10 | commands)
+
+    def read_memory0(self) -> MEMORY_BANK:
+        """Чтение списка исполнительных программ из банка памяти 0 контроллера."""
+
+        return self._get_structure(CMD_TYPE.CODE_CMD_POWERSTEP01_R_MEM0,
+                                   MEMORY_BANK)
+
+    def read_memory1(self) -> MEMORY_BANK:
+        """Чтение списка исполнительных программ из банка памяти 1 контроллера."""
+
+        return self._get_structure(CMD_TYPE.CODE_CMD_POWERSTEP01_R_MEM1,
+                                   MEMORY_BANK)
+
+    def read_memory2(self) -> MEMORY_BANK:
+        """Чтение списка исполнительных программ из банка памяти 2 контроллера."""
+
+        return self._get_structure(CMD_TYPE.CODE_CMD_POWERSTEP01_R_MEM2,
+                                   MEMORY_BANK)
+
+    def read_memory3(self) -> MEMORY_BANK:
+        """Чтение списка исполнительных программ из банка памяти 3 контроллера."""
+
+        return self._get_structure(CMD_TYPE.CODE_CMD_POWERSTEP01_R_MEM3,
+                                   MEMORY_BANK)
+
+    def write_memory0(self, bank: MEMORY_BANK) -> bool:
+        """Запись списка исполнительных программ в банк памяти 0 контроллера."""
+
+        return self._set_structure(CMD_TYPE.CODE_CMD_POWERSTEP01_W_MEM0, bank,
+                                   ERROR_OR_COMMAND.OK)
+
+    def write_memory1(self, bank: MEMORY_BANK) -> bool:
+        """Запись списка исполнительных программ в банк памяти 1 контроллера."""
+
+        return self._set_structure(CMD_TYPE.CODE_CMD_POWERSTEP01_W_MEM1, bank,
+                                   ERROR_OR_COMMAND.OK)
+
+    def write_memory2(self, bank: MEMORY_BANK) -> bool:
+        """Запись списка исполнительных программ в банк памяти 2 контроллера."""
+
+        return self._set_structure(CMD_TYPE.CODE_CMD_POWERSTEP01_W_MEM2, bank,
+                                   ERROR_OR_COMMAND.OK)
+
+    def write_memory3(self, bank: MEMORY_BANK) -> bool:
+        """Запись списка исполнительных программ в банк памяти 3 контроллера."""
+
+        return self._set_structure(CMD_TYPE.CODE_CMD_POWERSTEP01_W_MEM3, bank,
+                                   ERROR_OR_COMMAND.OK)
 
 
 __all__ = ["Smsd"]

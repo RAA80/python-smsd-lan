@@ -6,7 +6,7 @@ import logging
 from time import sleep
 
 from smsd.client import SmsdTcpClient, SmsdUsbClient
-from smsd.protocol import MODE, SMSD_LAN_CONFIG_TYPE
+from smsd.protocol import COMMAND, MEMORY_BANK, MODE, SMSD_LAN_CONFIG_TYPE
 
 logging.basicConfig(level=logging.INFO)
 
@@ -14,6 +14,8 @@ logging.basicConfig(level=logging.INFO)
 if __name__ == "__main__":
     client = SmsdTcpClient(address="192.168.1.2:5000", timeout=1.0)
     # client = SmsdUsbClient(address="COM7", timeout=1.0)
+
+    print(f"protocol version: {client._version}")
 
     # sleep(2)  # Без паузы при работе через USB при первом включении возвращается ошибка ERROR_ACCESS_TIMEOUT
 
@@ -65,17 +67,17 @@ if __name__ == "__main__":
     print(f"set_max_speed: {client.set_max_speed(200)}")
     print(f"get_max_speed: {client.get_max_speed()}")
 
-    print(f"set_min_speed: {client.set_min_speed(100)}")
+    print(f"set_min_speed: {client.set_min_speed(70)}")
     print(f"get_min_speed: {client.get_min_speed()}")
 
-    print(f"set_acc: {client.set_acc(50)}")
-    print(f"set_dec: {client.set_dec(50)}")
+    print(f"set_acc: {client.set_acc(20)}")
+    print(f"set_dec: {client.set_dec(20)}")
 
     mode = MODE()
     mode.CURRENT_OR_VOLTAGE = 1
     mode.MOTOR_TYPE = 30
     mode.MICROSTEPPING = 4
-    mode.WORK_CURRENT = 15
+    mode.WORK_CURRENT = 10
     mode.STOP_CURRENT = 0
     mode.PROGRAM_N = 0
     print(f"set_mode: {client.set_mode(mode)}")
@@ -93,6 +95,16 @@ if __name__ == "__main__":
     # sleep(5)
     # print(f"run_f: {client.run_r(500)}")
     # sleep(5)
+
+    print(f"status_powerstep01: {client.status_powerstep01}")   # Обновляется после каждого вызова команды CMD_PowerSTEP01_xxx
+    print(f"    HIZ: {client.status_powerstep01.HIZ}")
+    print(f"    BUSY: {client.status_powerstep01.BUSY}")
+    print(f"    SW_F: {client.status_powerstep01.SW_F}")
+    print(f"    SW_EVN: {client.status_powerstep01.SW_EVN}")
+    print(f"    DIR: {client.status_powerstep01.DIR}")
+    print(f"    MOT_STATUS: {client.status_powerstep01.MOT_STATUS}")
+    print(f"    CMD_ERROR: {client.status_powerstep01.CMD_ERROR}")
+    print(f"    RESERVE: {client.status_powerstep01.RESERVE}")
 
     print(f"move_f: {client.move_f(5000)}")
     sleep(5)
@@ -179,6 +191,25 @@ if __name__ == "__main__":
     print(f"set_rele: {client.set_rele()}")
     print(f"clr_rele: {client.clr_rele()}")
     print(f"get_rele: {client.get_rele()}")
+
+    # memory0 = client.read_memory0()
+    # print(f"read_memory0: {memory0.data[0].COMMAND}, {memory0.data[0].DATA}")
+    # print(f"read_memory0: {memory0.data[1].COMMAND}, {memory0.data[1].DATA}")
+
+    # print(f"read_memory1: {client.read_memory1()}")
+    # print(f"read_memory2: {client.read_memory2()}")
+    # print(f"read_memory3: {client.read_memory3()}")
+
+    # memory1 = MEMORY_BANK()
+    # memory1.data[0].COMMAND = COMMAND.CMD_POWERSTEP01_SET_MIN_SPEED
+    # memory1.data[0].DATA = 300
+    # memory1.data[1].COMMAND = COMMAND.CMD_POWERSTEP01_SET_MAX_SPEED
+    # memory1.data[1].DATA = 800
+    # print(f"write_memory1: {client.write_memory1(memory1)}")
+
+    # print(f"write_memory0: {client.write_memory0(memory1)}")
+    # print(f"write_memory2: {client.write_memory2(memory1)}")
+    # print(f"write_memory3: {client.write_memory3(memory1)}")
 
     # print(f"start_program_mem0: {client.start_program_mem0()}")
     # print(f"start_program_mem1: {client.start_program_mem1()}")
