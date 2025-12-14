@@ -38,7 +38,7 @@ class SmsdUsbClient(Smsd):
     def __del__(self) -> None:
         """Закрытие соединения с устройством при удалении объекта."""
 
-        if self.socket.is_open:
+        if hasattr(self, "socket") and self.socket.is_open:
             self.socket.close()
 
     @log
@@ -63,9 +63,9 @@ class SmsdUsbClient(Smsd):
     def _escape(packet: bytes) -> bytes:
         """Замена специальных символов внутри пакета парой байтов."""
 
-        packet = packet.replace(b"\xFA", b"\xFE\x7A").\
-                        replace(b"\xFB", b"\xFE\x7B").\
-                        replace(b"\xFE", b"\xFE\x7E")
+        packet = packet.replace(b"\xFA", b"\xFE\x7A")\
+                       .replace(b"\xFB", b"\xFE\x7B")\
+                       .replace(b"\xFE", b"\xFE\x7E")
         return b"\xFA" + packet + b"\xFB"
 
     @staticmethod
@@ -73,9 +73,9 @@ class SmsdUsbClient(Smsd):
         """Обратная замена пары байтов внутри пакета на символы."""
 
         packet = packet[1:-1]
-        return packet.replace(b"\xFE\x7A", b"\xFA").\
-                      replace(b"\xFE\x7B", b"\xFB").\
-                      replace(b"\xFE\x7E", b"\xFE")
+        return packet.replace(b"\xFE\x7A", b"\xFA")\
+                     .replace(b"\xFE\x7B", b"\xFB")\
+                     .replace(b"\xFE\x7E", b"\xFE")
 
 
 class SmsdTcpClient(Smsd):

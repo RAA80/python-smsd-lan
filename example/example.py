@@ -6,7 +6,7 @@ import logging
 from time import sleep
 
 from smsd.client import SmsdTcpClient, SmsdUsbClient
-from smsd.protocol import COMMAND, MEMORY_BANK, MODE, SMSD_LAN_CONFIG_TYPE
+from smsd.protocol import MEMORY_BANK, MODE, POWERSTEP01, SMSD_LAN_CONFIG_TYPE
 
 logging.basicConfig(level=logging.INFO)
 
@@ -201,9 +201,9 @@ if __name__ == "__main__":
     # print(f"read_memory3: {client.read_memory3()}")
 
     # memory1 = MEMORY_BANK()
-    # memory1.data[0].COMMAND = COMMAND.CMD_POWERSTEP01_SET_MIN_SPEED
+    # memory1.data[0].COMMAND = POWERSTEP01.SET_MIN_SPEED
     # memory1.data[0].DATA = 300
-    # memory1.data[1].COMMAND = COMMAND.CMD_POWERSTEP01_SET_MAX_SPEED
+    # memory1.data[1].COMMAND = POWERSTEP01.SET_MAX_SPEED
     # memory1.data[1].DATA = 800
     # print(f"write_memory1: {client.write_memory1(memory1)}")
 
