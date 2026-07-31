@@ -1,141 +1,90 @@
 #! /usr/bin/env python3
 
-"""Реализация функций для работы с контроллером шагового двигателя SMSD-LAN."""
+"""Реализация функций для работы с контроллером шагового двигателя SMSD-LAN
+по протоколу Modbus.
+"""
 
 from __future__ import annotations
 
-from ctypes import (POINTER, LittleEndianStructure, byref, c_ubyte, cast,
-                    create_string_buffer, sizeof, string_at)
-from itertools import cycle
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING
 
 from smsd.exception import SmsdError
-from smsd.protocol import (CODE_CMD, COMMANDS_RETURN_DATA_TYPE, LAN_COMMAND_TYPE,
-                           LAN_ERROR_STATISTICS, MEMORY_BANK, MODE, POWERSTEP01,
-                           POWERSTEP_STATUS_TYPEDEF, SMSD_CMD_TYPE,
-                           SMSD_LAN_CONFIG_TYPE, STATUS, STATUS_IN_EVENT)
+from smsd.protocol import (LAN_ERROR_STATISTICS, MEMORY_BANK, MODE,
+                           POWERSTEP01, POWERSTEP_STATUS_TYPEDEF,
+                           SMSD_LAN_CONFIG_TYPE, STATUS_IN_EVENT)
 
 if TYPE_CHECKING:
-    from _ctypes import _CData
+    from pymodbus.pdu import ModbusPDU
 
 
-T = TypeVar("T", bound=LittleEndianStructure)
-
-
-class Smsd:
-    """Класс функций для работы с контроллером шагового двигателя SMSD-LAN."""
+class Modbus:
+    """Класс функций для работы с контроллером шагового двигателя SMSD-LAN
+    по протоколу Modbus.
+    """
 
     def __init__(self) -> None:
-        """Инициализация класса Smsd."""
+        """Инициализация класса Modbus."""
 
         self._version = self._get_version()
-        self._cmd_id = cycle(range(256))
 
-        self.status_powerstep01 = POWERSTEP_STATUS_TYPEDEF()
+    def _write_bit(self, address: int, values: list[bool]) -> ModbusPDU:
+        """Запись в битовый регистр Modbus."""
 
-    def _bus_exchange(self, packet: bytes) -> bytes:
-        """Обмен по интерфейсу."""
+        raise NotImplementedError
+
+    def _write_hr(self, address: int, values: list[int]) -> ModbusPDU:
+        """Запись в регистр Modbus."""
+
+        raise NotImplementedError
+
+    def _read_hr(self, address: int, count: int) -> ModbusPDU:
+        """Запись в регистр Modbus."""
+
+        raise NotImplementedError
+
+    def _read_di(self, address: int, count: int) -> ModbusPDU:
+        """Чтение дискретных входов."""
 
         raise NotImplementedError
 
     def _get_version(self) -> int:
         """Получение версии протокола."""
 
-        if answer := self._bus_exchange(b""):
-            return answer[1]
-
-        msg = "Get protocol version error"
-        raise SmsdError(msg)
+        result = self._read_hr(address=0x8002, count=1)
+        return result.registers[0]
 
     @staticmethod
-    def _checksum(structure: LAN_COMMAND_TYPE) -> int:
-        """Вычисление контрольной суммы (исключая поле 'xor')."""
-
-        packet = string_at(byref(structure, 1), 5 + structure.LENGTH)
-        return -sum(packet) & 0xFF
-
-    def _make_request(self, command: CODE_CMD, buffer: bytes) -> bytes:
-        """Формирование пакета для записи."""
-
-        lan_cmd_type = LAN_COMMAND_TYPE()
-        lan_cmd_type.VER = self._version
-        lan_cmd_type.TYPE = command.value
-        lan_cmd_type.ID = next(self._cmd_id)
-        lan_cmd_type.LENGTH = len(buffer)
-        lan_cmd_type.DATA = (c_ubyte * 1024)(*buffer)
-        lan_cmd_type.XOR = self._checksum(lan_cmd_type)
-
-        return string_at(byref(lan_cmd_type), 6 + lan_cmd_type.LENGTH)
-
-    def _parse_answer(self, buffer: bytes) -> LAN_COMMAND_TYPE:
-        """Расшифровка прочитанного пакета."""
-
-        data = create_string_buffer(buffer)
-        lan_cmd_type = cast(data, POINTER(LAN_COMMAND_TYPE)).contents
-
-        if self._checksum(lan_cmd_type) != lan_cmd_type.XOR:
-            msg = "Invalid message checksum"
-            raise SmsdError(msg)
-
-        return lan_cmd_type
-
-    @staticmethod
-    def _check_error(status: STATUS, structure: COMMANDS_RETURN_DATA_TYPE) -> bool:
+    def _check_error(retcode: ModbusPDU) -> ModbusPDU:
         """Проверка возвращаемого значения на ошибку."""
 
-        if status.value != structure.ERROR_OR_COMMAND:
-            msg = STATUS(structure.ERROR_OR_COMMAND).name
+        if retcode.isError():
+            raise SmsdError(retcode)
+        return retcode
+
+    def _authorization(self, password: str, mode: int) -> bool:
+        """Авторизация/Установка пароля пользователя."""
+
+        data = list(bytearray(password, encoding="ascii")[:8]) \
+               if password else \
+               [0xEF, 0xCD, 0xAB, 0x89, 0x67, 0x45, 0x23, 0x01]
+        self._run_cmd(0x2100, data, 0x2104, [mode])
+
+        result = self._read_di(address=0x2200, count=1)
+        if not result.bits[0]:
+            msg = "Authorization Error"
             raise SmsdError(msg)
 
         return True
 
-    def _execute(self, command: CODE_CMD, data: _CData, ret_type: type[T]) -> T:
-        """Выполнение команды и получение ответа."""
+    def _run_cmd(self, address1: int,
+                       arg1: list[int],
+                       address2: int | None = None,
+                       arg2: list[int] | None = None) -> bool:
+        """Запись в регистр для начала выполнения команды."""
 
-        buffer = string_at(byref(data), sizeof(data))
-        request = self._make_request(command, buffer)
-        answer = self._bus_exchange(request)
-        structure = self._parse_answer(answer)
-
-        return cast(structure.DATA, POINTER(ret_type)).contents
-
-    def _get_structure(self, command: CODE_CMD, structure: type[T]) -> T:
-        """Посылка команды чтения структуры."""
-
-        data = create_string_buffer(0)
-        return self._execute(command, data, structure)
-
-    def _set_structure(self, command: CODE_CMD, data: _CData, status: STATUS) -> bool:
-        """Посылка команды записи структуры."""
-
-        structure = self._execute(command, data, COMMANDS_RETURN_DATA_TYPE)
-        return self._check_error(status, structure)
-
-    def _powerstep01(self, command: POWERSTEP01, status: STATUS,
-                           value: int) -> COMMANDS_RETURN_DATA_TYPE:
-        """Посылка команды POWERSTEP01."""
-
-        smsd_cmd_type = SMSD_CMD_TYPE()
-        smsd_cmd_type.COMMAND = command.value
-        smsd_cmd_type.DATA = value
-
-        result = self._execute(CODE_CMD.POWERSTEP01, smsd_cmd_type,
-                               COMMANDS_RETURN_DATA_TYPE)
-        self.status_powerstep01 = result.STATUS_POWERSTEP01
-
-        self._check_error(status, result)
-        return result
-
-    def _get_param(self, command: POWERSTEP01, status: STATUS) -> int:
-        """Чтение значения параметра из устройства."""
-
-        structure = self._powerstep01(command, status, 0)
-        return int(structure.RETURN_DATA)
-
-    def _set_param(self, command: POWERSTEP01, status: STATUS, value: int = 0) -> bool:
-        """Запись нового значения параметра в устройство."""
-
-        self._powerstep01(command, status, value)
+        self._write_hr(address=address1, values=arg1)
+        if address2 is not None and arg2 is not None:
+            self._write_hr(address=address2, values=arg2)
         return True
 
     # Основные функции
@@ -145,438 +94,524 @@ class Smsd:
         используется пароль по умолчанию.
         """
 
-        data = (c_ubyte * 8)(*bytearray(password, encoding="ascii")[:8]) \
-               if password else \
-               (c_ubyte * 8)(*(0xEF, 0xCD, 0xAB, 0x89, 0x67, 0x45, 0x23, 0x01))
-
-        return self._set_structure(CODE_CMD.REQUEST, data, STATUS.OK_ACCESS)
+        return self._authorization(password, 0)
 
     def set_password(self, password: str = "") -> bool:
         """Установка нового пароля авторизации. Если значение не задано, то
         устанавливается пароль по умолчанию.
         """
 
-        data = (c_ubyte * 8)(*bytearray(password, encoding="ascii")[:8]) \
-               if password else \
-               (c_ubyte * 8)(*(0xEF, 0xCD, 0xAB, 0x89, 0x67, 0x45, 0x23, 0x01))
-
-        return self._set_structure(CODE_CMD.PASSWORD_SET, data, STATUS.OK)
+        return self._authorization(password, 1)
 
     def get_lan_config(self) -> SMSD_LAN_CONFIG_TYPE:
         """Чтение текущих сетевых настроек."""
 
-        return self._get_structure(CODE_CMD.CONFIG_GET, SMSD_LAN_CONFIG_TYPE)
+        result = self._read_hr(address=0x7001, count=24)
+
+        config = SMSD_LAN_CONFIG_TYPE()
+        config.MAC = result.registers[:6]
+        config.IP = result.registers[6:10]
+        config.SN = result.registers[10:14]
+        config.GW = result.registers[14:18]
+        config.DNS = result.registers[18:22]
+        config.PORT = result.registers[22]
+        config.DHCP = result.registers[23]
+
+        return config
 
     def set_lan_config(self, config: SMSD_LAN_CONFIG_TYPE) -> bool:
         """Запись новых сетевых настроек."""
 
-        return self._set_structure(CODE_CMD.CONFIG_SET, config, STATUS.OK)
+        return self._run_cmd(address1=0x7001, arg1=[*list(config.MAC),
+                                                    *list(config.IP),
+                                                    *list(config.SN),
+                                                    *list(config.GW),
+                                                    *list(config.DNS),
+                                                    *list(config.PORT),
+                                                    *list(config.DHCP)],
+                             address2=0x7400, arg2=[1])
 
     def get_error_statistics(self) -> LAN_ERROR_STATISTICS:
         """Чтение из памяти контроллера информации о количестве включений
         рабочего режима контроллера и статистики по ошибкам.
         """
 
-        return self._get_structure(CODE_CMD.ERROR_GET, LAN_ERROR_STATISTICS)
+        raise NotImplementedError
 
     def get_max_speed(self) -> int:
         """Чтение текущего значения установленной максимальной скорости."""
 
-        return self._get_param(POWERSTEP01.GET_MAX_SPEED, STATUS.GET_MAX_SPEED)
+        result = self._read_hr(address=0x1101, count=1)
+        return result.registers[0]
 
     def set_max_speed(self, speed: int) -> bool:
         """Установка максимальной скорости шагового двигателя."""
 
-        return self._set_param(POWERSTEP01.SET_MAX_SPEED, STATUS.OK, speed)
+        return self._run_cmd(0x1101, [speed])
 
     def get_min_speed(self) -> int:
         """Чтение текущего значения установленной минимальной скорости."""
 
-        return self._get_param(POWERSTEP01.GET_MIN_SPEED, STATUS.GET_MIN_SPEED)
+        result = self._read_hr(address=0x1100, count=1)
+        return result.registers[0]
 
     def set_min_speed(self, speed: int) -> bool:
         """Установка минимальной скорости вращения двигателя."""
 
-        return self._set_param(POWERSTEP01.SET_MIN_SPEED, STATUS.OK, speed)
+        return self._run_cmd(0x1100, [speed])
 
     def get_speed(self) -> int:
         """Чтение текущего значения скорости."""
 
-        return self._get_param(POWERSTEP01.GET_SPEED, STATUS.GET_SPEED)
+        result = self._read_hr(address=0x1000, count=1)
+        return result.registers[0]
 
     def run_f(self, speed: int) -> bool:
         """Старт непрерывного вращения двигателя в прямом направлении на
         указанной скорости.
         """
 
-        return self._set_param(POWERSTEP01.RUN_F, STATUS.OK, speed)
+        return self._run_cmd(0x1105, [speed],
+                             0x1109, [POWERSTEP01.RUN_F])
 
     def run_r(self, speed: int) -> bool:
         """Старт непрерывного вращения двигателя в обратном направлении на
         указанной скорости.
         """
 
-        return self._set_param(POWERSTEP01.RUN_R, STATUS.OK, speed)
+        return self._run_cmd(0x1105, [speed],
+                             0x1109, [POWERSTEP01.RUN_R])
 
     def get_mode(self) -> MODE:
         """Чтение настроек управления двигателем."""
 
+        result = self._read_hr(address=0x110A, count=5)
+
         mode = MODE()
-        mode.as_byte = self._get_param(POWERSTEP01.GET_MODE, STATUS.GET_MODE)
+        mode.CURRENT_OR_VOLTAGE = result.registers[0]
+        mode.MOTOR_TYPE = result.registers[1]
+        mode.MICROSTEPPING = result.registers[2]
+        mode.WORK_CURRENT = result.registers[3]
+        mode.STOP_CURRENT = result.registers[4]
+        mode.PROGRAM_N = 0
+
         return mode
 
     def set_mode(self, mode: MODE) -> bool:
         """Установка параметров управления двигателем."""
 
-        return self._set_param(POWERSTEP01.SET_MODE, STATUS.OK, mode.as_byte)
+        return self._run_cmd(0x110A, [mode.CURRENT_OR_VOLTAGE,
+                                      mode.MOTOR_TYPE,
+                                      mode.MICROSTEPPING,
+                                      mode.WORK_CURRENT,
+                                      mode.STOP_CURRENT])
 
     def set_acc(self, acceleration: int) -> bool:
         """Установка значения ускорения двигателя."""
 
-        return self._set_param(POWERSTEP01.SET_ACC, STATUS.OK, acceleration)
+        return self._run_cmd(0x1102, [acceleration])
 
     def set_dec(self, deceleration: int) -> bool:
         """Установка значения замедления шагового двигателя."""
 
-        return self._set_param(POWERSTEP01.SET_DEC, STATUS.OK, deceleration)
+        return self._run_cmd(0x1103, [deceleration])
 
     def move_f(self, steps: int) -> bool:
         """Перемещение двигателя в прямом направлении на указанную величину."""
 
-        return self._set_param(POWERSTEP01.MOVE_F, STATUS.OK, steps)
+        return self._run_cmd(0x1106, [*steps.to_bytes(2, "big")],
+                             0x1109, [POWERSTEP01.MOVE_F])
 
     def move_r(self, steps: int) -> bool:
         """Перемещение двигателя в обратном направлении на указанную величину."""
 
-        return self._set_param(POWERSTEP01.MOVE_R, STATUS.OK, steps)
+        return self._run_cmd(0x1106, [*steps.to_bytes(2, "big")],
+                             0x1109, [POWERSTEP01.MOVE_R])
 
     def get_abs_pos(self) -> int:
         """Чтение положения двигателя."""
 
-        return self._get_param(POWERSTEP01.GET_ABS_POS, STATUS.GET_ABS_POS)
+        result = self._read_hr(address=0x1001, count=2)
+        return int.from_bytes(result.registers, "big")
 
     def get_el_pos(self) -> int:
         """Чтение электрического положения ротора двигателя."""
 
-        return self._get_param(POWERSTEP01.GET_EL_POS, STATUS.GET_EL_POS)
+        result = self._read_hr(address=0x1003, count=1)
+        return result.registers[0]
 
     def get_status_and_clr(self) -> int:
         """Чтение текущего статуса контроллера и сброса всех флагов ошибок."""
 
-        return self._get_param(POWERSTEP01.GET_STATUS_AND_CLR, STATUS.OK)
+        self._write_bit(address=0x1400, values=[True])
+        result = self._read_hr(address=0x1004, count=1)
+        return result.registers[0]
 
     def get_status_in_event(self) -> STATUS_IN_EVENT:
         """Чтение текущего состояния входных сигналов."""
 
+        inputs = self._read_hr(address=0x1005, count=1)
+        mask = self._read_hr(address=0x110F, count=1)
+        wait = self._read_hr(address=0x1110, count=1)
+
         status = STATUS_IN_EVENT()
-        status.as_byte = self._get_param(POWERSTEP01.STATUS_IN_EVENT,
-                                         STATUS.GET_STATUS_IN_EVENT)
+        status.INT_0 = inputs.registers[0] >> 0 & 1
+        status.INT_1 = inputs.registers[0] >> 1 & 1
+        status.INT_2 = inputs.registers[0] >> 2 & 1
+        status.INT_3 = inputs.registers[0] >> 3 & 1
+        status.INT_4 = inputs.registers[0] >> 4 & 1
+        status.INT_5 = inputs.registers[0] >> 5 & 1
+        status.INT_6 = inputs.registers[0] >> 6 & 1
+        status.INT_7 = inputs.registers[0] >> 7 & 1
+        status.MASK_0 = mask.registers[0] >> 0 & 1
+        status.MASK_1 = mask.registers[0] >> 1 & 1
+        status.MASK_2 = mask.registers[0] >> 2 & 1
+        status.MASK_3 = mask.registers[0] >> 3 & 1
+        status.MASK_4 = mask.registers[0] >> 4 & 1
+        status.MASK_5 = mask.registers[0] >> 5 & 1
+        status.MASK_6 = mask.registers[0] >> 6 & 1
+        status.MASK_7 = mask.registers[0] >> 7 & 1
+        status.WAIT_0 = wait.registers[0] >> 0 & 1
+        status.WAIT_1 = wait.registers[0] >> 1 & 1
+        status.WAIT_2 = wait.registers[0] >> 2 & 1
+        status.WAIT_3 = wait.registers[0] >> 3 & 1
+        status.WAIT_4 = wait.registers[0] >> 4 & 1
+        status.WAIT_5 = wait.registers[0] >> 5 & 1
+        status.WAIT_6 = wait.registers[0] >> 6 & 1
+        status.WAIT_7 = wait.registers[0] >> 7 & 1
+
         return status
 
     def go_to_f(self, position: int) -> bool:
         """Перемещение в заданную позицию в прямом направлении."""
 
-        return self._set_param(POWERSTEP01.GO_TO_F, STATUS.OK, position)
+        return self._run_cmd(0x1106, [*position.to_bytes(2, "big")],
+                             0x1109, [POWERSTEP01.GO_TO_F])
 
     def go_to_r(self, position: int) -> bool:
         """Перемещение в заданную позицию в обратном направлении."""
 
-        return self._set_param(POWERSTEP01.GO_TO_R, STATUS.OK, position)
+        return self._run_cmd(0x1106, [*position.to_bytes(2, "big")],
+                             0x1109, [POWERSTEP01.GO_TO_R])
 
     def set_mask_event(self, mask: int) -> bool:
         """Маскирование входных сигналов."""
 
-        return self._set_param(POWERSTEP01.SET_MASK_EVENT, STATUS.OK, mask)
+        raise NotImplementedError
 
     def go_until_f(self, signal: int) -> bool:
         """Старт вращения двигателя в прямом направлении на максимальной
         скорости до получения сигнала на вход.
         """
 
-        return self._set_param(POWERSTEP01.GO_UNTIL_F, STATUS.OK, signal)
+        return self._run_cmd(0x1108, [signal],
+                             0x1109, [POWERSTEP01.GO_UNTIL_F])
 
     def go_until_r(self, signal: int) -> bool:
         """Старт вращения двигателя в обратном направлении на максимальной
         скорости до получения сигнала на вход.
         """
 
-        return self._set_param(POWERSTEP01.GO_UNTIL_R, STATUS.OK, signal)
+        return self._run_cmd(0x1108, [signal],
+                             0x1109, [POWERSTEP01.GO_UNTIL_R])
 
     def end(self) -> bool:
         """Обозначение конца программы."""
 
-        return self._set_param(POWERSTEP01.END, STATUS.END_PROGRAMS)
+        raise NotImplementedError
 
     def scan_zero_f(self, speed: int) -> bool:
         """Поиск нулевого положения в прямом направлении с заданной скоростью."""
 
-        return self._set_param(POWERSTEP01.SCAN_ZERO_F, STATUS.OK, speed)
+        return self._run_cmd(0x1105, [speed],
+                             0x1109, [POWERSTEP01.SCAN_ZERO_F])
 
     def scan_zero_r(self, speed: int) -> bool:
         """Поиск нулевого положения в обратном направлении с заданной скоростью."""
 
-        return self._set_param(POWERSTEP01.SCAN_ZERO_R, STATUS.OK, speed)
+        return self._run_cmd(0x1105, [speed],
+                             0x1109, [POWERSTEP01.SCAN_ZERO_R])
 
     def scan_label_f(self, speed: int) -> bool:
         """Поиск метки положения в прямом направлении."""
 
-        return self._set_param(POWERSTEP01.SCAN_LABEL_F, STATUS.OK, speed)
+        return self._run_cmd(0x1105, [speed],
+                             0x1109, [POWERSTEP01.SCAN_LABEL_F])
 
     def scan_label_r(self, speed: int) -> bool:
         """Поиск метки положения в обратном направлении."""
 
-        return self._set_param(POWERSTEP01.SCAN_LABEL_R, STATUS.OK, speed)
+        return self._run_cmd(0x1105, [speed],
+                             0x1109, [POWERSTEP01.SCAN_LABEL_R])
 
     def go_zero(self) -> bool:
         """Перемещение в нулевое положение."""
 
-        return self._set_param(POWERSTEP01.GO_ZERO, STATUS.OK)
+        return self._run_cmd(0x1109, [POWERSTEP01.GO_ZERO])
 
     def go_label(self) -> bool:
         """Перемещение в положение, которое было отмечено как метка."""
 
-        return self._set_param(POWERSTEP01.GO_LABEL, STATUS.OK)
+        return self._run_cmd(0x1109, [POWERSTEP01.GO_LABEL])
 
     def go_to(self, position: int) -> bool:
         """Перемещение в заданное положение по кратчайшему пути."""
 
-        return self._set_param(POWERSTEP01.GO_TO, STATUS.OK, position)
+        return self._run_cmd(0x1106, [*position.to_bytes(2, "big")],
+                             0x1109, [POWERSTEP01.GO_TO])
 
     def reset_pos(self) -> bool:
         """Обнуление счетчика текущего положения."""
 
-        return self._set_param(POWERSTEP01.RESET_POS, STATUS.OK)
+        self._write_bit(address=0x1401, values=[True])
+        return True
 
     def reset_powerstep01(self) -> bool:
         """Полный аппаратный и программный сброс модуля управления шаговым
         двигателем, но не контроллера в целом.
         """
 
-        return self._set_param(POWERSTEP01.RESET_POWERSTEP01, STATUS.OK)
+        self._write_bit(address=0x1402, values=[True])
+        return True
 
     def soft_stop(self) -> bool:
         """Плавная остановка двигателя с заданным ускорением."""
 
-        return self._set_param(POWERSTEP01.SOFT_STOP, STATUS.OK)
+        return self._run_cmd(0x1109, [POWERSTEP01.SOFT_STOP])
 
     def hard_stop(self) -> bool:
         """Резкая остановка шагового двигателя."""
 
-        return self._set_param(POWERSTEP01.HARD_STOP, STATUS.OK)
+        return self._run_cmd(0x1109, [POWERSTEP01.HARD_STOP])
 
     def soft_hi_z(self) -> bool:
         """Плавная остановка шагового двигателя с заданным ускорением."""
 
-        return self._set_param(POWERSTEP01.SOFT_HI_Z, STATUS.OK)
+        return self._run_cmd(0x1109, [POWERSTEP01.SOFT_HI_Z])
 
     def hard_hi_z(self) -> bool:
         """Резкая остановка и обесточивания обмоток двигателя."""
 
-        return self._set_param(POWERSTEP01.HARD_HI_Z, STATUS.OK)
+        return self._run_cmd(0x1109, [POWERSTEP01.HARD_HI_Z])
 
     def set_fs_speed(self, speed: int) -> bool:
         """Установка скорости перехода на полношаговый режим работы."""
 
-        return self._set_param(POWERSTEP01.SET_FS_SPEED, STATUS.OK, speed)
+        return self._run_cmd(0x1104, [speed])
 
     def set_wait(self, time: int) -> bool:
         """Задание паузы."""
 
-        return self._set_param(POWERSTEP01.SET_WAIT, STATUS.OK, time)
+        raise NotImplementedError
 
     def set_rele(self) -> bool:
         """Включение реле контроллера."""
 
-        return self._set_param(POWERSTEP01.SET_RELE, STATUS.STATUS_RELE_SET)
+        self._write_bit(address=0x1407, values=[True])
+        return True
 
     def clr_rele(self) -> bool:
         """Выключение реле контроллера."""
 
-        return self._set_param(POWERSTEP01.CLR_RELE, STATUS.STATUS_RELE_CLR)
+        self._write_bit(address=0x1407, values=[False])
+        return True
 
     def get_rele(self) -> int:
         """Запрос состояния реле контроллера."""
 
-        try:
-            self._get_param(POWERSTEP01.GET_RELE, STATUS.OK)
-        except SmsdError as err:
-            if str(err) == "STATUS_RELE_CLR":
-                return 0
-            if str(err) == "STATUS_RELE_SET":
-                return 1
-
-        raise SmsdError
+        result = self._read_di(address=0x1407, count=1)
+        return int(result.bits[0])
 
     def wait_in0(self) -> bool:
         """Ожидание поступления сигнала на вход IN0."""
 
-        return self._set_param(POWERSTEP01.WAIT_IN0, STATUS.OK)
+        raise NotImplementedError
 
     def wait_in1(self) -> bool:
         """Ожидание поступления сигнала на вход IN1."""
 
-        return self._set_param(POWERSTEP01.WAIT_IN1, STATUS.OK)
+        raise NotImplementedError
 
     def step_clock(self) -> bool:
         """Изменение режима управления двигателем на импульсное сигналами
         EN, STEP, DIR.
         """
 
-        return self._set_param(POWERSTEP01.STEP_CLOCK, STATUS.OK)
+        raise NotImplementedError
 
     def stop_usb(self) -> bool:
         """Остановка работы микросхемы USB."""
 
-        return self._set_param(POWERSTEP01.STOP_USB, STATUS.END_PROGRAMS)
+        raise NotImplementedError
 
     def get_stack(self) -> dict[str, int]:
         """Чтение информации о выполняемой в данный момент программе."""
 
-        result = self._get_param(POWERSTEP01.GET_STACK, STATUS.GET_STACK)
-        return {"command": result & 0xFF,
-                "program": result >> 8 & 0x3}
+        result = self._read_hr(address=0x3001, count=2)
+        return {"command": result.registers[1],
+                "program": result.registers[0]}
 
     def wait_continue(self) -> bool:
         """Ожидание прихода синхросигнала на вход CONTINUE."""
 
-        return self._set_param(POWERSTEP01.WAIT_CONTINUE, STATUS.OK)
+        raise NotImplementedError
 
     def set_wait_2(self, time: int) -> bool:
         """Задание паузы (может быть прервано поступлением сигнала на вход
         IN0, IN1 или SET_ZERO).
         """
 
-        return self._set_param(POWERSTEP01.SET_WAIT_2, STATUS.OK, time)
+        raise NotImplementedError
 
     def scan_mark2_f(self, speed: int) -> bool:
         """Поиск метки положения в прямом направлении."""
 
-        return self._set_param(POWERSTEP01.SCAN_MARK2_F, STATUS.OK, speed)
+        return self._run_cmd(0x1105, [speed],
+                             0x1109, [POWERSTEP01.SCAN_MARK2_F])
 
     def scan_mark2_r(self, speed: int) -> bool:
         """Поиск метки положения в обратном направлении."""
 
-        return self._set_param(POWERSTEP01.SCAN_MARK2_R, STATUS.OK, speed)
+        return self._run_cmd(0x1105, [speed],
+                             0x1109, [POWERSTEP01.SCAN_MARK2_R])
 
     def goto_program_if_zero(self, program: int, command: int) -> bool:
         """Переход к заданной команде заданной программы, если значение
         текущей позиции равно 0.
         """
 
-        return self._set_param(POWERSTEP01.GOTO_PROGRAM_IF_ZERO, STATUS.OK,
-                               program << 8 | command)
+        raise NotImplementedError
 
     def goto_program_if_in_zero(self, program: int, command: int) -> bool:
         """Переход к заданной команде заданной программы, если на входе
         SET_ZERO присутствует сигнал.
         """
 
-        return self._set_param(POWERSTEP01.GOTO_PROGRAM_IF_IN_ZERO, STATUS.OK,
-                               program << 8 | command)
+        raise NotImplementedError
 
     def stop_program_mem(self) -> bool:
         """Остановка выполнения программы."""
 
-        return self._set_param(POWERSTEP01.STOP_PROGRAM_MEM, STATUS.OK)
+        return self._run_cmd(0x1109, [POWERSTEP01.STOP_PROGRAM_MEM])
 
     def start_program_mem0(self) -> bool:
         """Старт программы, записанной в область памяти 0 контроллера."""
 
-        return self._set_param(POWERSTEP01.START_PROGRAM_MEM0, STATUS.OK)
+        return self._run_cmd(0x1109, [POWERSTEP01.START_PROGRAM_MEM0])
 
     def start_program_mem1(self) -> bool:
         """Старт программы, записанной в область памяти 1 контроллера."""
 
-        return self._set_param(POWERSTEP01.START_PROGRAM_MEM1, STATUS.OK)
+        return self._run_cmd(0x1109, [POWERSTEP01.START_PROGRAM_MEM1])
 
     def start_program_mem2(self) -> bool:
         """Старт программы, записанной в область памяти 2 контроллера."""
 
-        return self._set_param(POWERSTEP01.START_PROGRAM_MEM2, STATUS.OK)
+        return self._run_cmd(0x1109, [POWERSTEP01.START_PROGRAM_MEM2])
 
     def start_program_mem3(self) -> bool:
         """Старт программы, записанной в область памяти 3 контроллера."""
 
-        return self._set_param(POWERSTEP01.START_PROGRAM_MEM3, STATUS.OK)
+        return self._run_cmd(0x1109, [POWERSTEP01.START_PROGRAM_MEM3])
 
     def goto_program(self, program: int, command: int) -> bool:
         """Безусловный переход к заданной команде заданной программы."""
 
-        return self._set_param(POWERSTEP01.GOTO_PROGRAM, STATUS.OK,
-                               program << 8 | command)
+        raise NotImplementedError
 
     def goto_program_if_in0(self, program: int, command: int) -> bool:
         """Переход к заданной команде заданной программы, если на входе IN0
         присутствует сигнал.
         """
-
-        return self._set_param(POWERSTEP01.GOTO_PROGRAM_IF_IN0, STATUS.OK,
-                               program << 8 | command)
+        raise NotImplementedError
 
     def goto_program_if_in1(self, program: int, command: int) -> bool:
         """Переход к заданной команде заданной программы, если на входе IN1
         присутствует сигнал.
         """
 
-        return self._set_param(POWERSTEP01.GOTO_PROGRAM_IF_IN1, STATUS.OK,
-                               program << 8 | command)
+        raise NotImplementedError
 
     def call_program(self, program: int, command: int) -> bool:
         """Вызов подпрограммы."""
 
-        return self._set_param(POWERSTEP01.CALL_PROGRAM, STATUS.OK,
-                               program << 8 | command)
+        raise NotImplementedError
 
     def return_program(self) -> bool:
         """Возврат из подпрограммы в основную программу."""
 
-        return self._set_param(POWERSTEP01.RETURN_PROGRAM, STATUS.OK)
+        raise NotImplementedError
 
     def loop_program(self, cycles: int, commands: int) -> bool:
         """Контроллер повторяет заданное число раз заданное количество команд."""
 
-        return self._set_param(POWERSTEP01.LOOP_PROGRAM, STATUS.OK,
-                               cycles << 10 | commands)
+        raise NotImplementedError
 
     def read_memory0(self) -> MEMORY_BANK:
         """Чтение списка исполнительных программ из банка памяти 0 контроллера."""
 
-        return self._get_structure(CODE_CMD.POWERSTEP01_R_MEM0, MEMORY_BANK)
+        raise NotImplementedError
 
     def read_memory1(self) -> MEMORY_BANK:
         """Чтение списка исполнительных программ из банка памяти 1 контроллера."""
 
-        return self._get_structure(CODE_CMD.POWERSTEP01_R_MEM1, MEMORY_BANK)
+        raise NotImplementedError
 
     def read_memory2(self) -> MEMORY_BANK:
         """Чтение списка исполнительных программ из банка памяти 2 контроллера."""
 
-        return self._get_structure(CODE_CMD.POWERSTEP01_R_MEM2, MEMORY_BANK)
+        raise NotImplementedError
 
     def read_memory3(self) -> MEMORY_BANK:
         """Чтение списка исполнительных программ из банка памяти 3 контроллера."""
 
-        return self._get_structure(CODE_CMD.POWERSTEP01_R_MEM3, MEMORY_BANK)
+        raise NotImplementedError
 
     def write_memory0(self, bank: MEMORY_BANK) -> bool:
         """Запись списка исполнительных программ в банк памяти 0 контроллера."""
 
-        return self._set_structure(CODE_CMD.POWERSTEP01_W_MEM0, bank, STATUS.OK)
+        raise NotImplementedError
 
     def write_memory1(self, bank: MEMORY_BANK) -> bool:
         """Запись списка исполнительных программ в банк памяти 1 контроллера."""
 
-        return self._set_structure(CODE_CMD.POWERSTEP01_W_MEM1, bank, STATUS.OK)
+        raise NotImplementedError
 
     def write_memory2(self, bank: MEMORY_BANK) -> bool:
         """Запись списка исполнительных программ в банк памяти 2 контроллера."""
 
-        return self._set_structure(CODE_CMD.POWERSTEP01_W_MEM2, bank, STATUS.OK)
+        raise NotImplementedError
 
     def write_memory3(self, bank: MEMORY_BANK) -> bool:
         """Запись списка исполнительных программ в банк памяти 3 контроллера."""
 
-        return self._set_structure(CODE_CMD.POWERSTEP01_W_MEM3, bank, STATUS.OK)
+        raise NotImplementedError
+
+    @property
+    def status_powerstep01(self) -> POWERSTEP_STATUS_TYPEDEF:
+        """Статус состояния процесса управления шаговым двигателем."""
+
+        result = self._read_di(address=0x1200, count=10)
+        status = POWERSTEP_STATUS_TYPEDEF()
+
+        if result.bits[1]:
+            mot_status = 0
+        elif result.bits[2]:
+            mot_status = 3
+        elif result.bits[3]:
+            mot_status = 1
+        elif result.bits[4]:
+            mot_status = 2
+
+        status.HIZ = result.bits[0]
+        status.BUSY = result.bits[5]
+        status.SW_F = result.bits[6]
+        status.SW_EVN = result.bits[7]
+        status.DIR = result.bits[8]
+        status.MOT_STATUS = mot_status
+        status.CMD_ERROR = result.bits[9]
+
+        return status
 
 
-__all__ = ["Smsd"]
+__all__ = ["Modbus"]

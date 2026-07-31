@@ -5,7 +5,7 @@
 import logging
 from time import sleep
 
-from smsd.client import SmsdTcpClient, SmsdUsbClient
+from smsd.client import SmsdModbusClient, SmsdTcpClient, SmsdUsbClient
 from smsd.protocol import MEMORY_BANK, MODE, POWERSTEP01, SMSD_LAN_CONFIG_TYPE
 
 logging.basicConfig(level=logging.INFO)
@@ -14,6 +14,7 @@ logging.basicConfig(level=logging.INFO)
 if __name__ == "__main__":
     client = SmsdTcpClient(address="192.168.1.2:5000", timeout=1.0)
     # client = SmsdUsbClient(address="COM7", timeout=1.0)
+    # client = SmsdModbusClient(address="192.168.1.2:502", timeout=1.0)
 
     print(f"protocol version: {client._version}")
 

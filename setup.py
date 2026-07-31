@@ -1,16 +1,16 @@
 #! /usr/bin/env python3
 
-from setuptools import setup
+from setuptools import find_packages, setup
 
 setup(name="python-smsd-lan",
-      version="0.0.8",
+      version="0.0.9",
       description="SMSD LAN-series controller library",
       url="https://github.com/RAA80/python-smsd-lan",
       author="Alexey Ryadno",
       author_email="aryadno@mail.ru",
       license="MIT",
-      packages=["smsd"],
-      install_requires=["pyserial >= 3.4"],
+      packages=find_packages(),
+      install_requires=["pymodbus >= 3.0, < 3.9", "pyserial >= 3.5"],
       platforms=["Linux", "Windows"],
       classifiers=["Development Status :: 3 - Alpha",
                    "Intended Audience :: Science/Research",
